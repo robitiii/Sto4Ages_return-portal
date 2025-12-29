@@ -1,0 +1,211 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    /* Sto4ages Brand Colors - Forest Green Theme */
+    --background: 40 30% 88%;
+    --foreground: 120 30% 15%;
+
+    --card: 40 25% 92%;
+    --card-foreground: 120 30% 15%;
+
+    --popover: 40 25% 92%;
+    --popover-foreground: 120 30% 15%;
+
+    /* Primary - Sto4ages Forest Green */
+    --primary: 120 35% 35%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Warm Tan/Beige */
+    --secondary: 40 35% 90%;
+    --secondary-foreground: 120 30% 20%;
+
+    --muted: 120 15% 92%;
+    --muted-foreground: 120 15% 45%;
+
+    /* Accent - Warm Gold/Tan */
+    --accent: 35 40% 75%;
+    --accent-foreground: 120 30% 20%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Warning - For penalties */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    /* Success */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 120 15% 85%;
+    --input: 120 15% 85%;
+    --ring: 120 35% 35%;
+
+    --radius: 0.75rem;
+
+    /* Package Colors */
+    --platinum: 220 15% 55%;
+    --platinum-foreground: 0 0% 100%;
+    --diamond: 200 85% 55%;
+    --diamond-foreground: 0 0% 100%;
+
+    /* Sidebar */
+    --sidebar-background: 120 35% 30%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 120 35% 30%;
+    --sidebar-accent: 120 35% 40%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 120 35% 25%;
+    --sidebar-ring: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 120 30% 8%;
+    --foreground: 120 15% 95%;
+
+    --card: 120 25% 12%;
+    --card-foreground: 120 15% 95%;
+
+    --popover: 120 25% 12%;
+    --popover-foreground: 120 15% 95%;
+
+    --primary: 120 45% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 40 20% 20%;
+    --secondary-foreground: 40 30% 90%;
+
+    --muted: 120 20% 18%;
+    --muted-foreground: 120 10% 60%;
+
+    --accent: 35 30% 25%;
+    --accent-foreground: 40 30% 90%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 120 20% 20%;
+    --input: 120 20% 20%;
+    --ring: 120 45% 45%;
+
+    --platinum: 220 15% 50%;
+    --platinum-foreground: 0 0% 100%;
+    --diamond: 200 85% 50%;
+    --diamond-foreground: 0 0% 100%;
+
+    --sidebar-background: 120 30% 10%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 120 45% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 120 30% 18%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 120 25% 15%;
+    --sidebar-ring: 120 45% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-md border border-border/50 shadow-lg;
+  }
+
+  .gradient-primary {
+    @apply bg-gradient-to-br from-primary to-primary/80;
+  }
+
+  .gradient-hero {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(120, 40%, 28%) 100%);
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-success;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-out forwards;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.5s ease-out forwards;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-out forwards;
+  }
+
+  .package-platinum {
+    @apply border-2 border-[hsl(var(--platinum))] bg-gradient-to-br from-[hsl(var(--platinum)/0.1)] to-transparent;
+  }
+
+  .package-diamond {
+    @apply border-2 border-[hsl(var(--diamond))] bg-gradient-to-br from-[hsl(var(--diamond)/0.1)] to-transparent;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-muted rounded-full;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-primary/30 rounded-full hover:bg-primary/50 transition-colors;
+}
