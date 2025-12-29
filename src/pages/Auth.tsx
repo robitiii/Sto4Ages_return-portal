@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Logo } from '@/components/Logo';
 import { Eye, EyeOff, Mail, Lock, User, Phone, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from '@/firebaseConfig';
 
 interface AuthProps {
   onPageChange: (page: "auth" | "verify" | "register" | "booking" | "dashboard") => void;
@@ -19,18 +21,24 @@ const loginSchema = z.object({
 });
 
 const registerSchema = z.object({
-  fullName: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name is too long'),
+  fullName: z.string().min(2, 'Full name must be at least 2 characters').max(100, 'Name is too long'),
   email: z.string().email('Please enter a valid email address'),
   phone: z.string().min(10, 'Please enter a valid phone number').max(15, 'Phone number is too long'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
-  confirmPassword: z.string(),
+  confirmPassword: z.string().min(6, 'Please confirm your password'),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
 });
 
+const resetSchema = z.object({
+  email: z.string().email('Please enter a valid email address'),
+});
+
+type AuthMode = 'login' | 'register' | 'reset';
+
 export default function Auth({ onPageChange }: AuthProps) {
-  const [isLogin, setIsLogin] = useState(true);
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -44,6 +52,58 @@ export default function Auth({ onPageChange }: AuthProps) {
   });
 
   const { login, register, googleSignIn } = useAuth();
+
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setErrors({});
+
+    try {
+      const validation = resetSchema.safeParse(formData);
+      if (!validation.success) {
+        const fieldErrors: Record<string, string> = {};
+        validation.error.errors.forEach((err) => {
+          if (err.path[0]) {
+            fieldErrors[err.path[0] as string] = err.message;
+          }
+        });
+        setErrors(fieldErrors);
+        setIsLoading(false);
+        return;
+      }
+
+      await withTimeout(sendPasswordResetEmail(auth, formData.email));
+      
+      // Always show success message for account enumeration protection
+      toast.success('If an account exists for this email, a password reset link has been sent.');
+      setAuthMode('login');
+      setErrors({});
+    } catch (error: any) {
+      console.error('Password reset error:', error);
+      
+      // Map Firebase errors to user-friendly messages
+      let errorMessage = 'Something went wrong. Please try again.';
+      
+      if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Please enter a valid email address.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please try again.';
+      } else if (error.message === 'Request timeout') {
+        errorMessage = 'Request timeout. Please try again.';
+      }
+      
+      // For user-not-found, still show success message (account enumeration protection)
+      if (error.code === 'auth/user-not-found') {
+        toast.success('If an account exists for this email, a password reset link has been sent.');
+        setAuthMode('login');
+        setErrors({});
+      } else {
+        toast.error(errorMessage);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -67,7 +127,7 @@ const handleSubmit = async (e: React.FormEvent) => {
     setErrors({});
 
     try {
-      if (isLogin) {
+      if (authMode === 'login') {
         const validation = loginSchema.safeParse(formData);
         if (!validation.success) {
           const fieldErrors: Record<string, string> = {};
@@ -168,18 +228,83 @@ const handleSubmit = async (e: React.FormEvent) => {
               <Logo size="md" className="justify-center" />
             </div>
             <CardTitle className="text-2xl font-bold">
-              {isLogin ? 'Welcome Back' : 'Create Account'}
+              {authMode === 'login' ? 'Welcome Back' : 'Create Account'}
             </CardTitle>
             <CardDescription>
-              {isLogin
+              {authMode === 'login'
                 ? 'Sign in to manage your storage bookings'
                 : 'Start with a free Platinum package'}
             </CardDescription>
           </CardHeader>
 
           <CardContent className="pt-4">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {!isLogin && (
+            {authMode === 'reset' ? (
+              // Password Reset UI
+              <form onSubmit={handlePasswordReset} className="space-y-4">
+                <div className="text-center mb-6">
+                  <h3 className="text-lg font-semibold mb-2">Reset Your Password</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Enter your email address and we'll send you a password reset link.
+                  </p>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      placeholder="you@university.edu"
+                      value={formData.email}
+                      onChange={handleInputChange}
+                      className="pl-10"
+                      required
+                    />
+                  </div>
+                  {errors.email && (
+                    <p className="text-sm text-destructive">{errors.email}</p>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  size="lg"
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <div className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                  ) : (
+                    'Send Reset Link'
+                  )}
+                </Button>
+
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('login');
+                      setErrors({});
+                      setFormData({
+                        fullName: '',
+                        email: '',
+                        phone: '',
+                        password: '',
+                        confirmPassword: '',
+                      });
+                    }}
+                    className="text-sm text-primary font-semibold hover:underline"
+                  >
+                    Back to login
+                  </button>
+                </div>
+              </form>
+            ) : (
+              // Login/Register UI
+              <form onSubmit={handleSubmit} className="space-y-4">
+              {authMode === 'register' && (
                 <div className="space-y-2">
                   <Label htmlFor="fullName">Full Name</Label>
                   <div className="relative">
@@ -192,7 +317,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                       value={formData.fullName}
                       onChange={handleInputChange}
                       className="pl-10"
-                      required={!isLogin}
+                      required={authMode === 'register'}
                     />
                   </div>
                   {errors.fullName && (
@@ -221,7 +346,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                 )}
               </div>
 
-              {!isLogin && (
+              {authMode === 'register' && (
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone Number</Label>
                   <div className="relative">
@@ -234,7 +359,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                       value={formData.phone}
                       onChange={handleInputChange}
                       className="pl-10"
-                      required={!isLogin}
+                      required={authMode === 'register'}
                     />
                   </div>
                   {errors.phone && (
@@ -270,7 +395,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                 )}
               </div>
 
-              {!isLogin && (
+              {authMode === 'register' && (
                 <div className="space-y-2">
                   <Label htmlFor="confirmPassword">Confirm Password</Label>
                   <div className="relative">
@@ -283,7 +408,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                       value={formData.confirmPassword}
                       onChange={handleInputChange}
                       className="pl-10"
-                      required={!isLogin}
+                      required={authMode === 'register'}
                     />
                   </div>
                   {errors.confirmPassword && (
@@ -302,14 +427,29 @@ const handleSubmit = async (e: React.FormEvent) => {
                   <div className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
                 ) : (
                   <>
-                    {isLogin ? 'Sign In' : 'Create Account'}
+                    {authMode === 'login' ? 'Sign In' : 'Create Account'}
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
               </Button>
             </form>
+            )}
 
-            {/* Divider */}
+            {/* Forgot Password Link - Only show on login tab */}
+            {authMode === 'login' && (
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => setAuthMode('reset')}
+                  className="text-sm text-primary font-semibold hover:underline"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
+
+            {/* Divider - Only show for login/register */}
+            {authMode !== 'reset' && (
             <div className="relative my-6">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t border-border" />
@@ -318,8 +458,10 @@ const handleSubmit = async (e: React.FormEvent) => {
                 <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
               </div>
             </div>
+            )}
 
-            {/* Google Sign-In */}
+            {/* Google Sign-In - Only show for login/register */}
+            {authMode !== 'reset' && (
             <Button
               type="button"
               variant="outline"
@@ -345,14 +487,17 @@ const handleSubmit = async (e: React.FormEvent) => {
               </svg>
               Continue with Google
             </Button>
+            )}
 
+            {/* Toggle between login/register - Only show for non-reset modes */}
+            {authMode !== 'reset' && (
             <div className="mt-6 text-center">
               <p className="text-sm text-muted-foreground">
-                {isLogin ? "Don't have an account?" : 'Already have an account?'}
+                {authMode === 'login' ? "Don't have an account?" : 'Already have an account?'}
                 <button
                   type="button"
                   onClick={() => {
-                    setIsLogin(!isLogin);
+                    setAuthMode(authMode === 'login' ? 'register' : 'login');
                     setErrors({});
                     setFormData({
                       fullName: '',
@@ -364,10 +509,11 @@ const handleSubmit = async (e: React.FormEvent) => {
                   }}
                   className="ml-1 text-primary font-semibold hover:underline"
                 >
-                  {isLogin ? 'Sign up' : 'Sign in'}
+                  {authMode === 'login' ? 'Sign up' : 'Sign in'}
                 </button>
               </p>
             </div>
+            )}
           </CardContent>
         </Card>
       </div>
