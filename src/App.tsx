@@ -4,8 +4,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { useEffect, useState } from "react";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/firebaseConfig";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import Packages from "./pages/Packages";
 import Booking from "./pages/Booking";
 import Index from "./pages/Index";
@@ -18,6 +21,7 @@ const queryClient = new QueryClient();
 function AppContent() {
   const { currentUser, isLoading } = useAuth();
   const [page, setPage] = useState<PageState>("auth");
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!isLoading) {
@@ -30,6 +34,25 @@ function AppContent() {
       }
     }
   }, [currentUser, isLoading]);
+
+  // Check admin status when user is logged in
+  useEffect(() => {
+    if (currentUser) {
+      const checkAdminStatus = async () => {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          const userData = userDoc.data();
+          setIsAdmin(userData?.isAdmin || false);
+        } catch (error) {
+          console.error('Error checking admin status:', error);
+          setIsAdmin(false);
+        }
+      };
+      checkAdminStatus();
+    } else {
+      setIsAdmin(null);
+    }
+  }, [currentUser]);
 
   if (isLoading) {
     return (
@@ -50,7 +73,12 @@ function AppContent() {
       case "booking":
         return <Booking onPageChange={setPage} />;
       case "dashboard":
-        return <Dashboard onPageChange={setPage} />;
+        // Show admin dashboard for admin users, regular dashboard for others
+        if (isAdmin === true) {
+          return <AdminDashboard />;
+        } else {
+          return <Dashboard onPageChange={setPage} />;
+        }
       default:
         return <Auth onPageChange={setPage} />;
     }

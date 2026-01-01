@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
@@ -25,13 +25,38 @@ import {
 import { format } from 'date-fns';
 
 export default function Dashboard({ onPageChange }: DashboardProps) {
-  const { currentUser, bookings, logout, isLoading } = useAuth();
+  const { currentUser, bookings, logout, isLoading, updateUserPhone } = useAuth();
+  const [phoneInput, setPhoneInput] = useState('');
+  const [showPhonePrompt, setShowPhonePrompt] = useState(false);
+  const [isUpdatingPhone, setIsUpdatingPhone] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !currentUser) {
       onPageChange('auth');
     }
   }, [currentUser, isLoading, onPageChange]);
+
+  // Check if phone number is missing (likely Google Sign-In user)
+  useEffect(() => {
+    if (currentUser && (!currentUser.phone || currentUser.phone.trim() === '')) {
+      setShowPhonePrompt(true);
+    }
+  }, [currentUser]);
+
+  const handlePhoneSubmit = async () => {
+    if (!phoneInput.trim()) {
+      return;
+    }
+
+    setIsUpdatingPhone(true);
+    const result = await updateUserPhone(phoneInput);
+    
+    if (result.success) {
+      setShowPhonePrompt(false);
+      setPhoneInput('');
+    }
+    setIsUpdatingPhone(false);
+  };
 
   if (isLoading) {
     return (
@@ -63,6 +88,52 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Phone Number Prompt for Google Users */}
+      {showPhonePrompt && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card rounded-lg p-6 max-w-md mx-4 animate-scale-in">
+            <div className="text-center mb-4">
+              <Phone className="w-12 h-12 mx-auto mb-3 text-primary" />
+              <h3 className="text-lg font-semibold mb-2">Phone Number Required</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                To complete your profile, please provide your phone number. This helps us contact you about your storage collections.
+              </p>
+            </div>
+            <div className="space-y-4">
+              <input
+                type="tel"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                placeholder="+27 12 345 6789"
+                className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                disabled={isUpdatingPhone}
+              />
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowPhonePrompt(false)}
+                  disabled={isUpdatingPhone}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handlePhoneSubmit}
+                  disabled={!phoneInput.trim() || isUpdatingPhone}
+                  className="flex-1"
+                >
+                  {isUpdatingPhone ? (
+                    <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                  ) : (
+                    'Save Phone'
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-card border-b border-border sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">

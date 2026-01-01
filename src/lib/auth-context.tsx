@@ -43,6 +43,20 @@ export interface Booking {
   penaltyAmount: number;
   status: "confirmed" | "pending" | "completed" | "cancelled";
   createdAt: any;
+  // New fields for package system
+  packageType: "Platinum" | "Diamond";
+  operatingDays: number; // 2 for Platinum, 3 for Diamond
+  returnDay: "MON" | "TUE" | "WED" | "THU" | "FRI";
+  returnDate: string;
+  returnTime: string | null;
+  dropOffAddress: string;
+  price: number; // 0 for Platinum, 200 for Diamond + surcharges
+  currency: "ZAR";
+  paymentStatus: "not_required" | "pending" | "paid";
+  // Diamond flexible day selection fields
+  isNonOperationalDay: boolean;
+  nonOperationalDayFee: number;
+  totalSurcharge: number;
 }
 
 interface AuthContextType {
@@ -53,10 +67,11 @@ interface AuthContextType {
   register: (email: string, password: string, name: string, phone: string) => Promise<{ success: boolean; error?: string }>;
   googleSignIn: () => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
-  createBooking: (booking: Omit<Booking, 'userId' | 'createdAt'>) => Promise<{ success: boolean; error?: string }>;
-  updateBooking: (booking: Partial<Booking>) => Promise<{ success: boolean; error?: string }>;
+  createBooking: (bookingData: Omit<Booking, 'userId' | 'createdAt' | 'price' | 'currency' | 'paymentStatus'>) => Promise<{ success: boolean; error?: string }>;
+  updateBooking: (bookingData: Partial<Booking>) => Promise<{ success: boolean; error?: string }>;
   deleteBooking: () => Promise<{ success: boolean; error?: string }>;
   resendVerificationEmail: () => Promise<{ success: boolean; error?: string }>;
+  updateUserPhone: (phone: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -188,18 +203,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateUserPhone = async (phone: string): Promise<{ success: boolean; error?: string }> => {
+    if (!currentUser) return { success: false, error: 'User not authenticated' };
+
+    try {
+      const userRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userRef, { 
+        phone: phone 
+      });
+      
+      if (currentUser) {
+        setCurrentUser({ ...currentUser, phone });
+      }
+      
+      return { success: true };
+    } catch (error: any) {
+      console.error('Update phone error:', error);
+      return { success: false, error: 'Failed to update phone number.' };
+    }
+  };
+
   const logout = async (): Promise<void> => {
     await signOut(auth);
   };
 
-  const createBooking = async (bookingData: Omit<Booking, 'userId' | 'createdAt'>): Promise<{ success: boolean; error?: string }> => {
+  const createBooking = async (bookingData: Omit<Booking, 'userId' | 'createdAt' | 'price' | 'currency' | 'paymentStatus'>): Promise<{ success: boolean; error?: string }> => {
     if (!currentUser) return { success: false, error: 'User not authenticated' };
 
     try {
+      // Calculate base price and surcharges
+      let basePrice = 0;
+      let totalSurcharge = 0;
+      
+      if (bookingData.packageType === 'Diamond') {
+        basePrice = 200;
+        totalSurcharge = bookingData.totalSurcharge || 0;
+      }
+      
       const booking: Booking = {
         ...bookingData,
         userId: currentUser.uid,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        // Calculate total price including surcharges
+        price: basePrice + totalSurcharge,
+        currency: 'ZAR',
+        paymentStatus: (basePrice + totalSurcharge) > 0 ? 'pending' : 'not_required'
       };
 
       await setDoc(doc(db, 'bookings', currentUser.uid), booking);
@@ -269,6 +317,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         updateBooking,
         deleteBooking,
         resendVerificationEmail,
+        updateUserPhone
       }}
     >
       {children}

@@ -16,6 +16,7 @@ import {
   Calendar as CalendarIcon,
   Clock,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   Crown,
   Diamond,
@@ -52,8 +53,12 @@ export default function Booking({ onPageChange }: BookingProps) {
 
   const [selectedDate, setSelectedDate] = useState<Date | undefined>();
   const [selectedTime, setSelectedTime] = useState<string>('');
+  const [selectedPackage, setSelectedPackage] = useState<'Platinum' | 'Diamond'>('Platinum');
   const [showPenaltyDialog, setShowPenaltyDialog] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showPackageChangeDialog, setShowPackageChangeDialog] = useState(false);
+  const [dropOffAddress, setDropOffAddress] = useState('');
+  const [selectedReturnDay, setSelectedReturnDay] = useState<'MON' | 'TUE' | 'WED' | 'THU' | 'FRI'>('MON');
 
   useEffect(() => {
     if (!isLoading && !currentUser) {
@@ -62,17 +67,35 @@ export default function Booking({ onPageChange }: BookingProps) {
   }, [currentUser, isLoading, onPageChange]);
 
   const canSelectTime = useMemo(() => {
-    if (!currentUser) return false;
-    return currentUser.package === 'diamond' || (currentUser.package === 'platinum' && currentUser.customTimeSelected);
-  }, [currentUser]);
+    return selectedPackage === 'Diamond';
+  }, [selectedPackage]);
 
-  const isPlatinumFree = useMemo(() => {
-    if (!currentUser) return false;
-    return currentUser.package === 'platinum' && !currentUser.customTimeSelected;
-  }, [currentUser]);
+  const isSystemTime = useMemo(() => {
+    return selectedPackage === 'Platinum';
+  }, [selectedPackage]);
 
-  const isValidPlatinumDay = (date: Date) => {
-    return isMonday(date) || isWednesday(date) || isFriday(date);
+  // Check if date is a standard operational day for each package
+  const isStandardOperationalDay = (date: Date, packageType: 'Platinum' | 'Diamond') => {
+    if (packageType === 'Platinum') {
+      // Platinum: Monday & Friday only
+      return isMonday(date) || isFriday(date);
+    } else {
+      // Diamond: Monday, Wednesday, Friday (standard days)
+      return isMonday(date) || isWednesday(date) || isFriday(date);
+    }
+  };
+
+  // Check if Diamond can select this day (including flexible days)
+  const isValidDiamondDay = (date: Date) => {
+    // Diamond can select any weekday (Mon-Fri)
+    const dayOfWeek = date.getDay();
+    return dayOfWeek >= 1 && dayOfWeek <= 5; // Monday (1) to Friday (5)
+  };
+
+  // Check if date requires surcharge for Diamond package
+  const requiresSurcharge = (date: Date) => {
+    if (selectedPackage !== 'Diamond') return false;
+    return !isStandardOperationalDay(date, 'Diamond');
   };
 
   const isDateDisabled = (date: Date) => {
@@ -82,11 +105,21 @@ export default function Booking({ onPageChange }: BookingProps) {
     // Must be in the future
     if (date < today) return true;
 
-    // Must be at least 3 days from now
-    if (differenceInDays(date, today) < 3) return true;
+    // Must be at least 7 days from now (new requirement)
+    if (differenceInDays(date, today) < 7) return true;
 
-    // Platinum free currentUsers can only select Mon, Wed, Fri
-    if (isPlatinumFree && !isValidPlatinumDay(date)) return true;
+    // No weekends allowed for any package
+    const dayOfWeek = date.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) return true; // Sunday (0) or Saturday (6)
+
+    // Package-specific day restrictions
+    if (selectedPackage === 'Platinum') {
+      // Platinum: Monday & Friday only
+      return !isStandardOperationalDay(date, 'Platinum');
+    } else if (selectedPackage === 'Diamond') {
+      // Diamond: Any weekday (Mon-Fri)
+      return !isValidDiamondDay(date);
+    }
 
     return false;
   };
@@ -96,12 +129,22 @@ export default function Booking({ onPageChange }: BookingProps) {
     today.setHours(0, 0, 0, 0);
     const daysDiff = differenceInDays(date, today);
 
-    // 6-3 days = R500 penalty
-    if (daysDiff >= 3 && daysDiff <= 6) {
+    // Under 7 days may have penalties (operationally approved)
+    if (daysDiff < 7) {
       return { hasPenalty: true, amount: 500 };
     }
 
     return { hasPenalty: false, amount: 0 };
+  };
+
+  const calculateSurcharge = (date: Date): { hasSurcharge: boolean; amount: number } => {
+    if (selectedPackage !== 'Diamond') return { hasSurcharge: false, amount: 0 };
+    
+    if (requiresSurcharge(date)) {
+      return { hasSurcharge: true, amount: 200 };
+    }
+
+    return { hasSurcharge: false, amount: 0 };
   };
 
   const handleDateSelect = (date: Date | undefined) => {
@@ -111,8 +154,8 @@ export default function Booking({ onPageChange }: BookingProps) {
     today.setHours(0, 0, 0, 0);
     const daysDiff = differenceInDays(date, today);
 
-    if (daysDiff < 3) {
-      toast.error('Bookings must be made at least 3 days in advance.');
+    if (daysDiff < 7) {
+      toast.error('Bookings must be made at least 7 days in advance.');
       return;
     }
 
@@ -144,16 +187,28 @@ export default function Booking({ onPageChange }: BookingProps) {
     if (!selectedDate || !currentUser) return;
 
     const { hasPenalty, amount } = calculatePenalty(selectedDate);
+    const { hasSurcharge, amount: surchargeAmount } = calculateSurcharge(selectedDate);
 
     const result = await createBooking({
       id: currentUser.uid,
       tier: currentUser.package === 'platinum' ? 'Gold' : 'Diamond',
       collectionDate: selectedDate.toISOString(),
       collectionTime: canSelectTime ? selectedTime : null,
-      isSystemTime: isPlatinumFree,
+      isSystemTime: isSystemTime,
       penaltyApplied: hasPenalty,
       penaltyAmount: amount,
       status: 'confirmed',
+      // New package system fields
+      packageType: selectedPackage,
+      operatingDays: selectedPackage === 'Platinum' ? 2 : 3, // Updated: Platinum 2 days, Diamond 3 days
+      returnDay: selectedReturnDay,
+      returnDate: selectedDate.toISOString(),
+      returnTime: canSelectTime ? selectedTime : null,
+      dropOffAddress: dropOffAddress,
+      // Diamond flexible day selection fields
+      isNonOperationalDay: hasSurcharge,
+      nonOperationalDayFee: surchargeAmount,
+      totalSurcharge: surchargeAmount
     });
 
     if (result.success) {
@@ -200,6 +255,71 @@ export default function Booking({ onPageChange }: BookingProps) {
           </p>
         </div>
 
+        {/* Package Selector */}
+        <Card className="mb-6 animate-slide-up" style={{ animationDelay: '50ms' }}>
+          <CardHeader>
+            <CardTitle>Select Package</CardTitle>
+            <CardDescription>
+              Choose your storage package
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="py-4">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="radio"
+                    id="platinum"
+                    name="package"
+                    value="Platinum"
+                    checked={selectedPackage === 'Platinum'}
+                    onChange={(e) => setSelectedPackage(e.target.value as 'Platinum' | 'Diamond')}
+                    className="w-4 h-4 text-primary"
+                  />
+                  <Label htmlFor="platinum" className="flex items-center space-x-2 cursor-pointer">
+                    <Crown className="w-5 h-5 text-platinum" />
+                    <div>
+                      <p className="font-semibold">Platinum Package</p>
+                      <p className="text-sm text-muted-foreground">Free</p>
+                    </div>
+                  </Label>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  <p>• 5 operating days</p>
+                  <p>• Mon, Tue, Wed, Thu, Fri</p>
+                  <p>• System-assigned time</p>
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="radio"
+                    id="diamond"
+                    name="package"
+                    value="Diamond"
+                    checked={selectedPackage === 'Diamond'}
+                    onChange={(e) => setSelectedPackage(e.target.value as 'Platinum' | 'Diamond')}
+                    className="w-4 h-4 text-primary"
+                  />
+                  <Label htmlFor="diamond" className="flex items-center space-x-2 cursor-pointer">
+                    <Diamond className="w-5 h-5 text-diamond" />
+                    <div>
+                      <p className="font-semibold">Diamond Package</p>
+                      <p className="text-sm text-muted-foreground">R200</p>
+                    </div>
+                  </Label>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  <p>• 3 operating days</p>
+                  <p>• Mon, Wed, Fri</p>
+                  <p>• Choose your time</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Current Package Info */}
         <Card className="mb-6 animate-slide-up">
           <CardContent className="py-4">
@@ -217,13 +337,13 @@ export default function Booking({ onPageChange }: BookingProps) {
                       : 'Platinum Package'}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {isPlatinumFree
+                    {selectedPackage === 'Platinum'
                       ? 'Mon, Wed, Fri only • System assigns time'
                       : 'Full flexibility'}
                   </p>
                 </div>
               </div>
-              <Button variant="outline" size="sm" onClick={() => onPageChange('register')}>
+              <Button variant="outline" size="sm" onClick={() => setShowPackageChangeDialog(true)}>
                 Change
               </Button>
             </div>
@@ -239,9 +359,9 @@ export default function Booking({ onPageChange }: BookingProps) {
                 Select Date
               </CardTitle>
               <CardDescription>
-                {isPlatinumFree
-                  ? 'Available: Monday, Wednesday, Friday'
-                  : 'Select any available day'}
+                {selectedPackage === 'Platinum'
+                  ? 'Available: Monday & Friday only'
+                  : 'Available: Monday-Friday (Tue/Thu with +R200 surcharge)'}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -251,13 +371,19 @@ export default function Booking({ onPageChange }: BookingProps) {
                 onSelect={handleDateSelect}
                 disabled={isDateDisabled}
                 className="rounded-md border pointer-events-auto"
-                fromDate={addDays(new Date(), 3)}
+                fromDate={addDays(new Date(), 7)}
               />
               <div className="mt-4 p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <Ban className="w-4 h-4" />
-                  <span>Bookings require 3+ days advance notice</span>
+                  <span>Bookings require 7+ days advance notice</span>
                 </div>
+                {selectedPackage === 'Diamond' && selectedDate && requiresSurcharge(selectedDate) && (
+                  <div className="flex items-center gap-2 mt-2 text-orange-600">
+                    <AlertCircle className="w-4 h-4" />
+                    <span>Non-standard day: +R200 surcharge applies</span>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -273,7 +399,7 @@ export default function Booking({ onPageChange }: BookingProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {isPlatinumFree ? (
+                {isSystemTime ? (
                   <div className="p-6 rounded-lg bg-muted/50 text-center">
                     <Clock className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
                     <p className="font-medium text-foreground">System Assigned Time</p>
@@ -319,7 +445,7 @@ export default function Booking({ onPageChange }: BookingProps) {
                 <div className="flex justify-between items-center py-2 border-b border-border">
                   <span className="text-muted-foreground">Time</span>
                   <span className="font-medium">
-                    {isPlatinumFree ? 'To be assigned' : selectedTime || '—'}
+                    {isSystemTime ? 'To be assigned' : selectedTime || '—'}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-border">
@@ -345,6 +471,36 @@ export default function Booking({ onPageChange }: BookingProps) {
                     <span className="font-bold text-warning">R{amount}</span>
                   </div>
                 )}
+
+                {/* Return Day Selection - Only for Diamond */}
+                {selectedPackage === 'Diamond' && (
+                  <div className="space-y-3">
+                    <Label>Select Return Day</Label>
+                    <Select value={selectedReturnDay} onValueChange={(value) => setSelectedReturnDay(value as 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI')}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose return day" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MON">Monday</SelectItem>
+                        <SelectItem value="WED">Wednesday</SelectItem>
+                        <SelectItem value="FRI">Friday</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Drop-off Address - Required for both packages */}
+                <div className="space-y-3">
+                  <Label>Drop-off Address</Label>
+                  <input
+                    type="text"
+                    value={dropOffAddress}
+                    onChange={(e) => setDropOffAddress(e.target.value)}
+                    placeholder="Enter your drop-off address"
+                    className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    required
+                  />
+                </div>
 
                 <Button
                   className="w-full"
@@ -400,7 +556,7 @@ export default function Booking({ onPageChange }: BookingProps) {
                 </p>
                 <p>
                   <strong>Time:</strong>{' '}
-                  {isPlatinumFree ? 'To be assigned by Sto4ages' : selectedTime}
+                  {isSystemTime ? 'To be assigned by Sto4ages' : selectedTime}
                 </p>
                 {hasPenalty && (
                   <p className="text-warning">
@@ -414,6 +570,80 @@ export default function Booking({ onPageChange }: BookingProps) {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmBooking}>
               Confirm Booking
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Package Change Dialog */}
+      <AlertDialog open={showPackageChangeDialog} onOpenChange={setShowPackageChangeDialog}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change Package</AlertDialogTitle>
+            <AlertDialogDescription>
+              Select your preferred storage package
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="radio"
+                    id="platinum-dialog"
+                    name="package-dialog"
+                    value="Platinum"
+                    checked={selectedPackage === 'Platinum'}
+                    onChange={(e) => setSelectedPackage(e.target.value as 'Platinum' | 'Diamond')}
+                    className="w-4 h-4 text-primary"
+                  />
+                  <Label htmlFor="platinum-dialog" className="flex items-center space-x-2 cursor-pointer">
+                    <Crown className="w-5 h-5 text-platinum" />
+                    <div>
+                      <p className="font-semibold">Platinum Package</p>
+                      <p className="text-sm text-muted-foreground">Free</p>
+                    </div>
+                  </Label>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  <p>• 2 operating days</p>
+                  <p>• Monday & Friday only</p>
+                  <p>• System-assigned time</p>
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="radio"
+                    id="diamond-dialog"
+                    name="package-dialog"
+                    value="Diamond"
+                    checked={selectedPackage === 'Diamond'}
+                    onChange={(e) => setSelectedPackage(e.target.value as 'Platinum' | 'Diamond')}
+                    className="w-4 h-4 text-primary"
+                  />
+                  <Label htmlFor="diamond-dialog" className="flex items-center space-x-2 cursor-pointer">
+                    <Diamond className="w-5 h-5 text-diamond" />
+                    <div>
+                      <p className="font-semibold">Diamond Package</p>
+                      <p className="text-sm text-muted-foreground">R200 + flexible day options</p>
+                    </div>
+                  </Label>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  <p>• 3 standard operating days</p>
+                  <p>• Mon, Wed, Fri (standard)</p>
+                  <p>• Tue, Thu (with +R200 surcharge)</p>
+                  <p>• Choose your time</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => setShowPackageChangeDialog(false)}>
+              Apply Changes
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
