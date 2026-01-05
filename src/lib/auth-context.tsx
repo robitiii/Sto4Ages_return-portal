@@ -43,20 +43,19 @@ export interface Booking {
   penaltyAmount: number;
   status: "confirmed" | "pending" | "completed" | "cancelled";
   createdAt: any;
-  // New fields for package system
+  // Updated fields for new package system
   packageType: "Platinum" | "Diamond";
-  operatingDays: number; // 2 for Platinum, 3 for Diamond
-  returnDay: "MON" | "TUE" | "WED" | "THU" | "FRI";
+  allowedReturnDays: string[];
+  selectedReturnDay: "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
   returnDate: string;
   returnTime: string | null;
   dropOffAddress: string;
-  price: number; // 0 for Platinum, 200 for Diamond + surcharges
+  basePrice: number; // 0 for Platinum, 200 for Diamond
   currency: "ZAR";
+  weekendPenaltyApplied: boolean;
+  weekendPenaltyAmount: number;
+  totalPrice: number;
   paymentStatus: "not_required" | "pending" | "paid";
-  // Diamond flexible day selection fields
-  isNonOperationalDay: boolean;
-  nonOperationalDayFee: number;
-  totalSurcharge: number;
 }
 
 interface AuthContextType {
@@ -227,27 +226,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signOut(auth);
   };
 
-  const createBooking = async (bookingData: Omit<Booking, 'userId' | 'createdAt' | 'price' | 'currency' | 'paymentStatus'>): Promise<{ success: boolean; error?: string }> => {
+  const createBooking = async (bookingData: Omit<Booking, 'userId' | 'createdAt'>): Promise<{ success: boolean; error?: string }> => {
     if (!currentUser) return { success: false, error: 'User not authenticated' };
 
     try {
-      // Calculate base price and surcharges
-      let basePrice = 0;
-      let totalSurcharge = 0;
-      
-      if (bookingData.packageType === 'Diamond') {
-        basePrice = 200;
-        totalSurcharge = bookingData.totalSurcharge || 0;
-      }
-      
       const booking: Booking = {
         ...bookingData,
         userId: currentUser.uid,
-        createdAt: serverTimestamp(),
-        // Calculate total price including surcharges
-        price: basePrice + totalSurcharge,
-        currency: 'ZAR',
-        paymentStatus: (basePrice + totalSurcharge) > 0 ? 'pending' : 'not_required'
+        createdAt: serverTimestamp()
       };
 
       await setDoc(doc(db, 'bookings', currentUser.uid), booking);

@@ -79,23 +79,26 @@ export default function Booking({ onPageChange }: BookingProps) {
     if (packageType === 'Platinum') {
       // Platinum: Monday & Friday only
       return isMonday(date) || isFriday(date);
-    } else {
-      // Diamond: Monday, Wednesday, Friday (standard days)
-      return isMonday(date) || isWednesday(date) || isFriday(date);
+    } else if (packageType === 'Diamond') {
+      // Diamond: Monday to Friday (standard operational days)
+      const dayOfWeek = date.getDay();
+      return dayOfWeek >= 1 && dayOfWeek <= 5; // Monday (1) to Friday (5)
     }
+    return false;
   };
 
-  // Check if Diamond can select this day (including flexible days)
+  // Check if Diamond can select this day (including weekends with penalty)
   const isValidDiamondDay = (date: Date) => {
-    // Diamond can select any weekday (Mon-Fri)
-    const dayOfWeek = date.getDay();
-    return dayOfWeek >= 1 && dayOfWeek <= 5; // Monday (1) to Friday (5)
+    // Diamond can select any day (Mon-Sun)
+    return true;
   };
 
-  // Check if date requires surcharge for Diamond package
-  const requiresSurcharge = (date: Date) => {
+  // Check if date requires weekend penalty for Diamond package
+  const requiresWeekendPenalty = (date: Date) => {
     if (selectedPackage !== 'Diamond') return false;
-    return !isStandardOperationalDay(date, 'Diamond');
+    
+    const dayOfWeek = date.getDay();
+    return dayOfWeek === 0 || dayOfWeek === 6; // Sunday (0) or Saturday (6)
   };
 
   const isDateDisabled = (date: Date) => {
@@ -108,16 +111,12 @@ export default function Booking({ onPageChange }: BookingProps) {
     // Must be at least 7 days from now (new requirement)
     if (differenceInDays(date, today) < 7) return true;
 
-    // No weekends allowed for any package
-    const dayOfWeek = date.getDay();
-    if (dayOfWeek === 0 || dayOfWeek === 6) return true; // Sunday (0) or Saturday (6)
-
     // Package-specific day restrictions
     if (selectedPackage === 'Platinum') {
       // Platinum: Monday & Friday only
       return !isStandardOperationalDay(date, 'Platinum');
     } else if (selectedPackage === 'Diamond') {
-      // Diamond: Any weekday (Mon-Fri)
+      // Diamond: Any day allowed (Mon-Sun)
       return !isValidDiamondDay(date);
     }
 
@@ -137,14 +136,14 @@ export default function Booking({ onPageChange }: BookingProps) {
     return { hasPenalty: false, amount: 0 };
   };
 
-  const calculateSurcharge = (date: Date): { hasSurcharge: boolean; amount: number } => {
-    if (selectedPackage !== 'Diamond') return { hasSurcharge: false, amount: 0 };
+  const calculateWeekendPenalty = (date: Date): { hasPenalty: boolean; amount: number } => {
+    if (selectedPackage !== 'Diamond') return { hasPenalty: false, amount: 0 };
     
-    if (requiresSurcharge(date)) {
-      return { hasSurcharge: true, amount: 200 };
+    if (requiresWeekendPenalty(date)) {
+      return { hasPenalty: true, amount: 200 };
     }
 
-    return { hasSurcharge: false, amount: 0 };
+    return { hasPenalty: false, amount: 0 };
   };
 
   const handleDateSelect = (date: Date | undefined) => {
@@ -187,7 +186,7 @@ export default function Booking({ onPageChange }: BookingProps) {
     if (!selectedDate || !currentUser) return;
 
     const { hasPenalty, amount } = calculatePenalty(selectedDate);
-    const { hasSurcharge, amount: surchargeAmount } = calculateSurcharge(selectedDate);
+    const { hasPenalty: hasWeekendPenalty, amount: weekendPenaltyAmount } = calculateWeekendPenalty(selectedDate);
 
     const result = await createBooking({
       id: currentUser.uid,
@@ -200,15 +199,16 @@ export default function Booking({ onPageChange }: BookingProps) {
       status: 'confirmed',
       // New package system fields
       packageType: selectedPackage,
-      operatingDays: selectedPackage === 'Platinum' ? 2 : 3, // Updated: Platinum 2 days, Diamond 3 days
-      returnDay: selectedReturnDay,
+      allowedReturnDays: selectedPackage === 'Platinum' ? ['MON', 'FRI'] : ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
+      selectedReturnDay: format(selectedDate, 'EEEE').toUpperCase().slice(0, 3) as 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT' | 'SUN',
       returnDate: selectedDate.toISOString(),
       returnTime: canSelectTime ? selectedTime : null,
       dropOffAddress: dropOffAddress,
-      // Diamond flexible day selection fields
-      isNonOperationalDay: hasSurcharge,
-      nonOperationalDayFee: surchargeAmount,
-      totalSurcharge: surchargeAmount
+      // Diamond weekend penalty fields
+      basePrice: selectedPackage === 'Platinum' ? 0 : 200,
+      weekendPenaltyApplied: hasWeekendPenalty,
+      weekendPenaltyAmount: weekendPenaltyAmount,
+      totalPrice: (selectedPackage === 'Platinum' ? 0 : 200) + weekendPenaltyAmount
     });
 
     if (result.success) {
@@ -285,8 +285,8 @@ export default function Booking({ onPageChange }: BookingProps) {
                   </Label>
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  <p>• 5 operating days</p>
-                  <p>• Mon, Tue, Wed, Thu, Fri</p>
+                  <p>• 2 operating days</p>
+                  <p>• Mon And Fri</p>
                   <p>• System-assigned time</p>
                 </div>
               </div>
@@ -311,8 +311,9 @@ export default function Booking({ onPageChange }: BookingProps) {
                   </Label>
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  <p>• 3 operating days</p>
-                  <p>• Mon, Wed, Fri</p>
+                  <p>• 5 operating days</p>
+                  <p>• Monday to Friday</p>
+                  <p>• Weekends allowed (+R200)</p>
                   <p>• Choose your time</p>
                 </div>
               </div>
@@ -338,14 +339,11 @@ export default function Booking({ onPageChange }: BookingProps) {
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {selectedPackage === 'Platinum'
-                      ? 'Mon, Wed, Fri only • System assigns time'
-                      : 'Full flexibility'}
+                      ? 'Mon And Fri only • System assigns time'
+                      : 'Mon-Fri + Weekends (+R200 penalty)'}
                   </p>
                 </div>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setShowPackageChangeDialog(true)}>
-                Change
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -361,7 +359,7 @@ export default function Booking({ onPageChange }: BookingProps) {
               <CardDescription>
                 {selectedPackage === 'Platinum'
                   ? 'Available: Monday & Friday only'
-                  : 'Available: Monday-Friday (Tue/Thu with +R200 surcharge)'}
+                  : 'Available: Monday-Friday + Weekends (Weekends: +R200)'}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -378,10 +376,10 @@ export default function Booking({ onPageChange }: BookingProps) {
                   <Ban className="w-4 h-4" />
                   <span>Bookings require 7+ days advance notice</span>
                 </div>
-                {selectedPackage === 'Diamond' && selectedDate && requiresSurcharge(selectedDate) && (
+                {selectedPackage === 'Diamond' && selectedDate && requiresWeekendPenalty(selectedDate) && (
                   <div className="flex items-center gap-2 mt-2 text-orange-600">
                     <AlertCircle className="w-4 h-4" />
-                    <span>Non-standard day: +R200 surcharge applies</span>
+                    <span>Weekend selection: +R200 penalty applies</span>
                   </div>
                 )}
               </div>
@@ -469,23 +467,6 @@ export default function Booking({ onPageChange }: BookingProps) {
                       Late Booking Penalty
                     </span>
                     <span className="font-bold text-warning">R{amount}</span>
-                  </div>
-                )}
-
-                {/* Return Day Selection - Only for Diamond */}
-                {selectedPackage === 'Diamond' && (
-                  <div className="space-y-3">
-                    <Label>Select Return Day</Label>
-                    <Select value={selectedReturnDay} onValueChange={(value) => setSelectedReturnDay(value as 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI')}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose return day" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="MON">Monday</SelectItem>
-                        <SelectItem value="WED">Wednesday</SelectItem>
-                        <SelectItem value="FRI">Friday</SelectItem>
-                      </SelectContent>
-                    </Select>
                   </div>
                 )}
 

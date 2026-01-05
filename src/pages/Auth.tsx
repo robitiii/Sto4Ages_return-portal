@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Logo } from '@/components/Logo';
+import Footer from '@/components/Footer';
 import { Eye, EyeOff, Mail, Lock, User, Phone, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -191,6 +192,7 @@ const handleSubmit = async (e: React.FormEvent) => {
   ];
 
   return (
+    <>
     <div className="min-h-screen gradient-hero flex">
       {/* Left Side - Branding */}
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-center px-12 xl:px-20">
@@ -518,5 +520,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         </Card>
       </div>
     </div>
+    <Footer />
+    </>
   );
 }

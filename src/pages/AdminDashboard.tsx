@@ -16,16 +16,15 @@ interface BookingData {
   returnDate: string;
   returnTime: string | null;
   dropOffAddress: string;
-  price: number;
+  basePrice: number;
   currency: string;
+  weekendPenaltyApplied: boolean;
+  weekendPenaltyAmount: number;
+  totalPrice: number;
   paymentStatus: string;
   createdAt: any;
   penaltyApplied: boolean;
   penaltyAmount: number;
-  // Diamond flexible day selection fields
-  isNonOperationalDay: boolean;
-  nonOperationalDayFee: number;
-  totalSurcharge: number;
 }
 
 interface UserData {
@@ -57,6 +56,10 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Export error states
+  const [bookingsExportError, setBookingsExportError] = useState(false);
+  const [cashInExportError, setCashInExportError] = useState(false);
+
   // Filter states
   const [dateDimension, setDateDimension] = useState<'createdAt' | 'returnDate'>('returnDate');
   const [datePreset, setDatePreset] = useState<'today' | 'thisWeek' | 'next7Days' | 'thisMonth' | 'custom'>('custom');
@@ -65,7 +68,11 @@ export default function AdminDashboard() {
   const [packageFilter, setPackageFilter] = useState<'all' | 'Platinum' | 'Diamond'>('all');
 
   useEffect(() => {
-    if (!currentUser) return;
+    // Guard against auth state not being ready
+    if (!currentUser) {
+      setIsLoading(false);
+      return;
+    }
 
     const checkAdminAccess = async () => {
       try {
@@ -168,9 +175,16 @@ export default function AdminDashboard() {
   };
 
   // CSV Export Functions
-  const generateCSV = (data: any[], filename: string) => {
+  const generateCSV = (data: any[], filename: string, exportType: 'bookings' | 'cashIn') => {
     if (data.length === 0) {
-      alert('No data available for export');
+      // Set appropriate error state based on export type
+      if (exportType === 'bookings') {
+        setBookingsExportError(true);
+        setTimeout(() => setBookingsExportError(false), 5000);
+      } else {
+        setCashInExportError(true);
+        setTimeout(() => setCashInExportError(false), 5000);
+      }
       return;
     }
 
@@ -218,18 +232,19 @@ export default function AdminDashboard() {
       'Return Day': booking.selectedReturnDay,
       'Return Time': booking.returnTime || 'System Assigned',
       'Drop-off Address': booking.dropOffAddress,
-      'Price': `R${booking.price}`,
+      'Price': `R${booking.basePrice}`,
       'Payment Status': booking.paymentStatus,
       'Penalty Applied': booking.penaltyApplied ? 'Yes' : 'No',
       'Penalty Amount': booking.penaltyApplied ? `R${booking.penaltyAmount}` : 'R0',
-      'Non-Standard Day': booking.isNonOperationalDay ? 'Yes' : 'No',
-      'Flexible Day Surcharge': booking.isNonOperationalDay ? `R${booking.nonOperationalDayFee}` : 'R0',
+      'Weekend Penalty Applied': booking.weekendPenaltyApplied ? 'Yes' : 'No',
+      'Weekend Penalty Amount': booking.weekendPenaltyApplied ? `R${booking.weekendPenaltyAmount}` : 'R0',
+      'Total Price': `R${booking.totalPrice}`,
       'Created Date': booking.createdAt ? format(booking.createdAt.toDate(), 'yyyy-MM-dd HH:mm') : 'N/A'
     }));
 
     const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
     const filename = `weekly-bookings-${format(weekStart, 'yyyy-MM-dd')}.csv`;
-    generateCSV(csvData, filename);
+    generateCSV(csvData, filename, 'bookings');
   };
 
   const exportWeeklyCashIn = () => {
@@ -237,18 +252,18 @@ export default function AdminDashboard() {
     
     // Calculate cash-in data
     const cashInData = filteredBookings.map(booking => {
-      const totalRevenue = booking.price;
+      const totalRevenue = booking.totalPrice;
       const penaltyRevenue = booking.penaltyApplied ? booking.penaltyAmount : 0;
-      const surchargeRevenue = booking.isNonOperationalDay ? booking.nonOperationalDayFee : 0;
+      const weekendPenaltyRevenue = booking.weekendPenaltyApplied ? booking.weekendPenaltyAmount : 0;
       
       return {
         'Booking ID': booking.uid,
         'Customer Name': booking.user.name,
         'Package Type': booking.packageType,
         'Return Date': format(parseISO(booking.returnDate), 'yyyy-MM-dd'),
-        'Base Price': booking.packageType === 'Platinum' ? 'R0' : 'R200',
+        'Base Price': `R${booking.basePrice}`,
         'Penalty Revenue': `R${penaltyRevenue}`,
-        'Flexible Day Surcharge': `R${surchargeRevenue}`,
+        'Weekend Penalty Revenue': `R${weekendPenaltyRevenue}`,
         'Total Revenue': `R${totalRevenue}`,
         'Payment Status': booking.paymentStatus,
         'Created Date': booking.createdAt ? format(booking.createdAt.toDate(), 'yyyy-MM-dd HH:mm') : 'N/A'
@@ -266,9 +281,9 @@ export default function AdminDashboard() {
       return sum + penaltyPrice;
     }, 0);
     
-    const totalSurchargeRevenue = cashInData.reduce((sum, item) => {
-      const surchargePrice = parseInt(item['Flexible Day Surcharge'].replace(/[R,]/g, ''));
-      return sum + surchargePrice;
+    const totalWeekendPenaltyRevenue = cashInData.reduce((sum, item) => {
+      const weekendPenaltyPrice = parseInt(item['Weekend Penalty Revenue'].replace(/[R,]/g, ''));
+      return sum + weekendPenaltyPrice;
     }, 0);
     
     const grandTotal = cashInData.reduce((sum, item) => {
@@ -283,7 +298,7 @@ export default function AdminDashboard() {
       'Return Date': '',
       'Base Price': `R${totalBaseRevenue}`,
       'Penalty Revenue': `R${totalPenaltyRevenue}`,
-      'Flexible Day Surcharge': `R${totalSurchargeRevenue}`,
+      'Weekend Penalty Revenue': `R${totalWeekendPenaltyRevenue}`,
       'Total Revenue': `R${grandTotal}`,
       'Payment Status': '',
       'Created Date': ''
@@ -291,7 +306,7 @@ export default function AdminDashboard() {
 
     const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
     const filename = `weekly-cash-in-${format(weekStart, 'yyyy-MM-dd')}.csv`;
-    generateCSV(cashInData, filename);
+    generateCSV(cashInData, filename, 'cashIn');
   };
 
   // Apply filters to bookings
@@ -369,22 +384,47 @@ export default function AdminDashboard() {
 
     const weekGroups: { [key: string]: WeekGroup } = {};
     
+    // First pass: collect all bookings by week and check for weekend bookings
+    const weekendBookingWeeks = new Set<string>();
+    
+    filteredBookings.forEach(booking => {
+      const returnDate = parseISO(booking.returnDate);
+      const weekStart = startOfWeek(returnDate, { weekStartsOn: 1 }); // Monday
+      const weekKey = format(weekStart, 'yyyy-MM-dd');
+      const dayName = format(returnDate, 'EEEE');
+      
+      // Check if this is a weekend booking
+      if (dayName === 'Saturday' || dayName === 'Sunday') {
+        weekendBookingWeeks.add(weekKey);
+      }
+    });
+
+    // Second pass: create week groups with appropriate days
     filteredBookings.forEach(booking => {
       const returnDate = parseISO(booking.returnDate);
       const weekStart = startOfWeek(returnDate, { weekStartsOn: 1 }); // Monday
       const weekKey = format(weekStart, 'yyyy-MM-dd');
       
       if (!weekGroups[weekKey]) {
+        // Always include weekdays
+        const days: WeekGroup['days'] = {
+          Monday: { diamond: [], platinum: [] },
+          Tuesday: { diamond: [], platinum: [] },
+          Wednesday: { diamond: [], platinum: [] },
+          Thursday: { diamond: [], platinum: [] },
+          Friday: { diamond: [], platinum: [] }
+        };
+        
+        // Add weekend days only if bookings exist for this week
+        if (weekendBookingWeeks.has(weekKey)) {
+          days.Saturday = { diamond: [], platinum: [] };
+          days.Sunday = { diamond: [], platinum: [] };
+        }
+        
         weekGroups[weekKey] = {
           weekStart,
           weekEnd: addDays(weekStart, 6),
-          days: {
-            Monday: { diamond: [], platinum: [] },
-            Tuesday: { diamond: [], platinum: [] },
-            Wednesday: { diamond: [], platinum: [] },
-            Thursday: { diamond: [], platinum: [] },
-            Friday: { diamond: [], platinum: [] }
-          }
+          days
         };
       }
 
@@ -450,6 +490,18 @@ export default function AdminDashboard() {
 
   const weekGroups = groupBookingsByWeek();
 
+  // Guard against rendering when auth is not ready
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <p className="mt-4 text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -464,16 +516,36 @@ export default function AdminDashboard() {
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={exportWeeklyBookings} className="flex items-center gap-2 text-sm">
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Export Bookings</span>
-              <span className="sm:hidden">Bookings</span>
-            </Button>
-            <Button variant="outline" onClick={exportWeeklyCashIn} className="flex items-center gap-2 text-sm">
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Export Cash-In</span>
-              <span className="sm:hidden">Cash-In</span>
-            </Button>
+            <div className="flex flex-col">
+              <Button variant="outline" onClick={exportWeeklyBookings} className="flex items-center gap-2 text-sm">
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">Export Bookings</span>
+                <span className="sm:hidden">Bookings</span>
+              </Button>
+              {bookingsExportError && (
+                <div className="text-xs text-orange-600 mt-1">
+                  No data available to export for the selected period.
+                  <div className="text-xs text-orange-500 mt-1">
+                    Please adjust date range and try again.
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col">
+              <Button variant="outline" onClick={exportWeeklyCashIn} className="flex items-center gap-2 text-sm">
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">Export Cash-In</span>
+                <span className="sm:hidden">Cash-In</span>
+              </Button>
+              {cashInExportError && (
+                <div className="text-xs text-orange-600 mt-1">
+                  No data available to export for the selected period.
+                  <div className="text-xs text-orange-500 mt-1">
+                    Please adjust date range and try again.
+                  </div>
+                </div>
+              )}
+            </div>
             <Button variant="outline" onClick={handleLogout} className="flex items-center gap-2 text-sm">
               <LogOut className="w-4 h-4" />
               <span className="hidden sm:inline">Logout</span>
@@ -622,15 +694,15 @@ export default function AdminDashboard() {
 
           <Card>
             <CardHeader className="flex flex-row items-center space-y-0 pb-2">
-              <Diamond className="h-4 w-4 text-blue-500" />
-              <CardTitle className="text-sm font-medium">Flexible Day Surcharges</CardTitle>
+              <AlertCircle className="h-4 w-4 text-orange-500" />
+              <CardTitle className="text-sm font-medium">Weekend Penalties</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">
-                {getFilteredBookings().filter(b => b.isNonOperationalDay).length}
+              <div className="text-2xl font-bold text-orange-600">
+                {getFilteredBookings().filter(b => b.weekendPenaltyApplied).length}
               </div>
               <p className="text-xs text-muted-foreground">
-                R{getFilteredBookings().filter(b => b.isNonOperationalDay).reduce((sum, b) => sum + b.nonOperationalDayFee, 0)} total
+                R{getFilteredBookings().filter(b => b.weekendPenaltyApplied).reduce((sum, b) => sum + b.weekendPenaltyAmount, 0)} total
               </p>
             </CardContent>
           </Card>
@@ -662,14 +734,21 @@ export default function AdminDashboard() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const).map(dayName => {
+                  {Object.keys(weekGroup.days).map(dayName => {
                     const dayData = weekGroup.days[dayName];
                     const hasBookings = dayData.diamond.length > 0 || dayData.platinum.length > 0;
+                    const isWeekend = dayName === 'Saturday' || dayName === 'Sunday';
+                    const dayIndex = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].indexOf(dayName);
                     
                     return (
-                      <div key={dayName} className="border-l-4 border-muted pl-4">
-                        <h4 className="font-semibold text-lg mb-3">
-                          📅 {dayName} — {format(addDays(weekGroup.weekStart, ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].indexOf(dayName)), 'MMM d, yyyy')}
+                      <div key={dayName} className={`border-l-4 pl-4 ${isWeekend ? 'border-orange-300 bg-orange-50/30 -mx-2 px-2' : 'border-muted'}`}>
+                        <h4 className={`font-semibold text-lg mb-3 ${isWeekend ? 'text-orange-800' : ''}`}>
+                          📅 {dayName}{isWeekend && ' (Weekend)'} — {format(addDays(weekGroup.weekStart, dayIndex), 'MMM d, yyyy')}
+                          {isWeekend && (
+                            <span className="ml-2 text-sm text-orange-600 font-normal">
+                              Weekend booking — R200 penalty applies
+                            </span>
+                          )}
                         </h4>
                         
                         {!hasBookings ? (
@@ -705,11 +784,11 @@ export default function AdminDashboard() {
                                           </p>
                                         </div>
                                       )}
-                                      {booking.isNonOperationalDay && (
-                                        <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
-                                          <p className="text-blue-600 font-medium flex items-center gap-1">
+                                      {booking.weekendPenaltyApplied && (
+                                        <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-sm">
+                                          <p className="text-orange-600 font-medium flex items-center gap-1">
                                             <AlertCircle className="w-3 h-3" />
-                                            Non-Standard Day Surcharge: R{booking.nonOperationalDayFee}
+                                            Weekend Penalty: R{booking.weekendPenaltyAmount}
                                           </p>
                                         </div>
                                       )}
@@ -762,11 +841,11 @@ export default function AdminDashboard() {
                                           </p>
                                         </div>
                                       )}
-                                      {booking.isNonOperationalDay && (
-                                        <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
-                                          <p className="text-blue-600 font-medium flex items-center gap-1">
+                                      {booking.weekendPenaltyApplied && (
+                                        <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-sm">
+                                          <p className="text-orange-600 font-medium flex items-center gap-1">
                                             <AlertCircle className="w-3 h-3" />
-                                            Non-Standard Day Surcharge: R{booking.nonOperationalDayFee}
+                                            Weekend Penalty: R{booking.weekendPenaltyAmount}
                                           </p>
                                         </div>
                                       )}

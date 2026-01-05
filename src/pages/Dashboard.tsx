@@ -4,6 +4,7 @@ import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import Footer from '@/components/Footer';
 
 interface DashboardProps {
   onPageChange: (page: "auth" | "verify" | "register" | "booking" | "dashboard") => void;
@@ -87,6 +88,7 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
   };
 
   return (
+    <>
     <div className="min-h-screen bg-background">
       {/* Phone Number Prompt for Google Users */}
       {showPhonePrompt && (
@@ -211,20 +213,23 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
                     ? 'Free - System assigns collection time'
                     : currentUser.package === 'platinum' && currentUser.customTimeSelected
                     ? 'Paid - Custom time selection enabled'
-                    : 'Premium - Full flexibility'}
+                    : 'Premium - Weekends allowed (+R200)'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="text-sm text-muted-foreground mb-4">
                   {currentUser.package === 'platinum' && !currentUser.customTimeSelected ? (
                     <div className="space-y-2">
-                      <p>Collection days: Mon, Wed, Fri</p>
+                      <p>Collection days: Mon And Fri</p>
                       <p className="text-xs italic">
                         Time will be assigned by Sto4ages
                       </p>
                     </div>
                   ) : (
-                    <p>Full control over your collection schedule</p>
+                    <div className="space-y-2">
+                      <p>Collection days: Monday-Friday + Weekends</p>
+                      <p className="text-xs italic">Weekend selections incur +R200 penalty</p>
+                    </div>
                   )}
                 </div>
                 <Button onClick={() => onPageChange('booking')} className="w-full">
@@ -244,10 +249,6 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
                   <Button onClick={() => onPageChange('booking')} size="lg" className="flex-1 min-w-[200px]">
                     <Calendar className="w-5 h-5" />
                     Book Collection
-                  </Button>
-                  <Button onClick={() => onPageChange('register')} variant="outline" size="lg" className="flex-1 min-w-[200px]">
-                    <Package className="w-5 h-5" />
-                    Change Package
                   </Button>
                 </div>
               </CardContent>
@@ -359,5 +360,7 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
         </div>
       </main>
     </div>
+    <Footer />
+    </>
   );
 }
